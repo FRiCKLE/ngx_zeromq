@@ -1,0 +1,104 @@
+About
+=====
+`ngx_zeromq` is a transport module which allows `nginx` to use ZeroMQ
+message-oriented transport layer when communicating with upstream servers.
+
+It's level 7 protocol agnostic, which means that it can be used with any
+well-behaving upstream modules (`proxy`, `fastcgi`, `uwsgi`, `scgi`, etc.).
+
+
+Status
+======
+This is experimental module and it's compatible with following nginx releases:
+
+- 1.0.x (tested with 1.0.0 to 1.0.11),
+- 1.1.x (tested with 1.1.0 to 1.1.12).
+
+
+Caveats
+=======
+At this time, `ngx_zeromq` support only REQ/REP ZeroMQ sockets, which means
+that upstream response must be delivered in a single ZeroMQ message (although
+it can be multipart message).
+
+
+Each message part must fit into upstream buffer (as defined by
+`proxy_buffer_size`, `proxy_buffers` and other directives).
+
+
+ZeroMQ is hungry for file descriptors, it will crash and bring worker process
+down with it once it runs out of them. In order to guarantee that it doesn't
+happen, worker connections limit (see: `worker_connections`) should be set
+few times lower than the file descriptors limit (see: `worker_rlimit_nofile`).
+
+
+SSL is another transport module, which means that it cannot be combined with
+`ngx_zeromq` on the same connection (but this matters only for communication
+with upstream servers, clients can still use SSL when connecting to `nginx`).
+
+
+Configuration directives
+========================
+zeromq_threads
+--------------
+* **syntax**: `zeromq_threads num`
+* **default**: `1`
+* **context**: `main`
+
+Configure number of ZeroMQ I/O threads to be used by each worker process.
+
+
+zeromq
+------
+* **syntax**: `zeromq`
+* **default**: `none`
+* **context**: `upstream`
+
+Use ZeroMQ transport layer for servers defined in the upstream block.
+
+
+Sample configuration
+=====================
+Use HTTP over ZeroMQ (using standard `proxy` module).
+
+    http {
+        upstream blackhole {
+            server  127.0.0.1:8000;
+            zeromq;
+        }
+
+        server {
+            location / {
+                proxy_pass  http://blackhole;
+            }
+        }
+    }
+
+
+License
+=======
+
+    Copyright (c) 2012, FRiCKLE <info@frickle.com>
+    Copyright (c) 2012, Piotr Sikora <piotr.sikora@frickle.com>
+    All rights reserved.
+
+    Redistribution and use in source and binary forms, with or without
+    modification, are permitted provided that the following conditions
+    are met:
+    1. Redistributions of source code must retain the above copyright
+       notice, this list of conditions and the following disclaimer.
+    2. Redistributions in binary form must reproduce the above copyright
+       notice, this list of conditions and the following disclaimer in the
+       documentation and/or other materials provided with the distribution.
+
+    THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+    "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+    LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+    A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+    HOLDERS OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+    SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+    LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+    DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+    THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+    (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+    OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
