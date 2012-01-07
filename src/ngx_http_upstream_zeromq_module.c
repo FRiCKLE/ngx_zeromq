@@ -97,8 +97,27 @@ ngx_module_t  ngx_http_upstream_zeromq_module = {
 ngx_int_t
 ngx_http_upstream_init_zeromq(ngx_conf_t *cf, ngx_http_upstream_srv_conf_t *us)
 {
+    ngx_http_upstream_rr_peers_t  *peers;
+    ngx_str_t                      name;
+    ngx_uint_t                     i;
+
     if (ngx_http_upstream_init_round_robin(cf, us) != NGX_OK) {
         return NGX_ERROR;
+    }
+
+    if (us->servers) {
+        peers = us->peer.data;
+
+        for (i = 0; i < peers->number; i++) {
+            name.len = sizeof("tcp://") - 1 + peers->peer[i].name.len;
+            name.data = ngx_pnalloc(cf->pool, name.len + 1);
+
+            (void) ngx_snprintf(name.data, name.len, "tcp://%V",
+                                &peers->peer[i].name);
+            name.data[name.len] = '\0';
+
+            peers->peer[i].name = name;
+        }
     }
 
     us->peer.init = ngx_http_upstream_init_zeromq_peer;
@@ -140,30 +159,13 @@ ngx_http_upstream_get_zeromq_peer(ngx_peer_connection_t *pc, void *data)
 {
     ngx_http_upstream_zeromq_peer_data_t  *zp = data;
     ngx_int_t                              rc;
-    u_char                                *zmq_peer;
-    size_t                                 len;
 
     rc = ngx_http_upstream_get_round_robin_peer(pc, data);
     if (rc != NGX_OK) {
         return rc;
     }
 
-    len = sizeof("tcp://") + pc->name->len;
-
-    zmq_peer = ngx_pnalloc(zp->request->pool, len);
-    if (zmq_peer == NULL) {
-        return NGX_ERROR;
-    }
-
-    (void) ngx_snprintf(zmq_peer, len - 1, "tcp://%V", pc->name);
-    zmq_peer[len - 1] = '\0';
-
-    pc->data = zmq_peer;
-
     rc = ngx_zeromq_connect(pc);
-
-    pc->data = data;
-
     if (rc != NGX_OK) {
         return rc;
     }

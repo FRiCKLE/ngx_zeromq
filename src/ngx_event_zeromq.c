@@ -191,14 +191,14 @@ ngx_zeromq_connect(ngx_peer_connection_t *pc)
                       "zmq_connect: binding to local address is not supported");
     }
 
-    if (zmq_connect(zmq, (const char *) pc->data) == -1) {
+    if (zmq_connect(zmq, (const char *) pc->name->data) == -1) {
         ngx_zeromq_log_error(pc->log, "zmq_connect()");
         goto failed;
     }
 
     ngx_log_debug4(NGX_LOG_DEBUG_EVENT, pc->log, 0,
-                   "zmq_connect: lazily connected to tcp://%V,"
-                   " zmq:%p fd:%d #%d", pc->name, zmq, fd, c->number);
+                   "zmq_connect: lazily connected to %V, zmq:%p fd:%d #%d",
+                   pc->name, zmq, fd, c->number);
 
     if (ngx_add_conn) {
         /* rtsig */
