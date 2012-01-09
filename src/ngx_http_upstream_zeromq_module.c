@@ -34,7 +34,7 @@
 
 typedef struct {
     ngx_http_upstream_rr_peer_data_t   rrp;
-    void                              *zmq;
+    ngx_zeromq_connection_t            zc;
     ngx_http_request_t                *request;
 } ngx_http_upstream_zeromq_peer_data_t;
 
@@ -137,8 +137,14 @@ ngx_http_upstream_init_zeromq_peer(ngx_http_request_t *r,
         return NGX_ERROR;
     }
 
-    zp ->request = r;
-    zp ->zmq = NULL;
+    zp->zc.endpoint = ngx_palloc(r->pool, sizeof(ngx_zeromq_endpoint_t));
+    if (zp->zc.endpoint == NULL) {
+        return NGX_ERROR;
+    }
+
+    zp->zc.endpoint->type = &ngx_zeromq_socket_types[0];
+
+    zp->request = r;
     ngx_http_set_ctx(r, NULL, ngx_zeromq_module);
 
     r->upstream->peer.data = &zp->rrp;
@@ -165,13 +171,18 @@ ngx_http_upstream_get_zeromq_peer(ngx_peer_connection_t *pc, void *data)
         return rc;
     }
 
+    zp->zc.endpoint->addr = pc->name;
+
+    pc->data = &zp->zc;
     rc = ngx_zeromq_connect(pc);
+    pc->data = data;
+
     if (rc != NGX_OK) {
         return rc;
     }
 
-    zp->zmq = pc->connection->data;
-    ngx_http_set_ctx(zp->request, zp->zmq, ngx_zeromq_module);
+    zp->zc.connection.data = zp->request;
+    ngx_http_set_ctx(zp->request, zp->zc.socket, ngx_zeromq_module);
 
     return NGX_DONE;
 }
@@ -192,7 +203,7 @@ ngx_http_upstream_free_zeromq_peer(ngx_peer_connection_t *pc, void *data,
         }
 #endif
 
-        pc->connection->data = zp->zmq;
+        pc->connection->data = zp->zc.socket;
         ngx_zeromq_close(pc->connection);
         pc->connection = NULL;
     }

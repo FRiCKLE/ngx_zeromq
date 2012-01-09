@@ -34,13 +34,36 @@
 #include <ngx_event_connect.h>
 
 
+typedef struct {
+    ngx_str_t               name;
+    int                     value;
+    unsigned                can_send:1;
+    unsigned                can_recv:1;
+} ngx_zeromq_socket_t;
+
+
+typedef struct {
+    ngx_zeromq_socket_t    *type;
+    ngx_str_t              *addr;
+} ngx_zeromq_endpoint_t;
+
+
+typedef struct {
+    ngx_connection_t        connection;
+
+    ngx_zeromq_endpoint_t  *endpoint;
+    void                   *socket;
+} ngx_zeromq_connection_t;
+
+
 ngx_int_t ngx_zeromq_connect(ngx_peer_connection_t *pc);
 void ngx_zeromq_close(ngx_connection_t *c);
 
 
-extern ngx_module_t ngx_zeromq_module;
+extern ngx_module_t         ngx_zeromq_module;
 
-extern int zmq_used;
+extern ngx_zeromq_socket_t  ngx_zeromq_socket_types[];
+extern int                  zmq_used;
 
 
 #endif /* _NGX_EVENT_ZEROMQ_H_INCLUDED_ */

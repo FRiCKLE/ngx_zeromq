@@ -57,7 +57,6 @@ static ssize_t ngx_zeromq_recvmsg(void *zmq, ngx_event_t *ev, zmq_msg_t *msg);
 
 static ssize_t ngx_zeromq_send_part(void *zmq, ngx_event_t *wev, u_char *buf,
     size_t size, int flags);
-static ssize_t ngx_zeromq_send(ngx_connection_t *c, u_char *buf, size_t size);
 static ngx_chain_t *ngx_zeromq_send_chain(ngx_connection_t *c, ngx_chain_t *in,
     off_t limit);
 
@@ -73,6 +72,13 @@ static char *ngx_zeromq_threads(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
 static ngx_int_t ngx_zeromq_module_init(ngx_cycle_t *cycle);
 static ngx_int_t ngx_zeromq_process_init(ngx_cycle_t *cycle);
 static void ngx_zeromq_process_exit(ngx_cycle_t *cycle);
+
+
+ngx_zeromq_socket_t  ngx_zeromq_socket_types[] = {
+    { ngx_string("REQ"),  ZMQ_REQ,  1, 1 },
+    { ngx_string("PUSH"), ZMQ_PUSH, 1, 0 },
+    { ngx_null_string, 0, 0, 0 }
+};
 
 
 static ngx_command_t  ngx_zeromq_commands[] = {
@@ -134,15 +140,25 @@ ngx_zeromq_log_error(ngx_log_t *log, const char *text)
 ngx_int_t
 ngx_zeromq_connect(ngx_peer_connection_t *pc)
 {
-    ngx_connection_t  *c;
-    ngx_event_t       *rev, *wev;
-    void              *zmq;
-    int                fd, zero;
-    size_t             fdsize;
+    ngx_zeromq_connection_t  *zc = pc->data;
+    ngx_zeromq_endpoint_t    *zep;
+    ngx_connection_t         *c;
+    ngx_event_t              *rev, *wev;
+    void                     *zmq;
+    int                       fd, zero;
+    size_t                    fdsize;
 
-    zmq = zmq_socket(zmq_context, ZMQ_REQ);
+    if (zc == NULL || zc->endpoint == NULL) {
+        return NGX_ERROR;
+    }
+
+    zep = zc->endpoint;
+
+    zmq = zmq_socket(zmq_context, zep->type->value);
     if (zmq == NULL) {
-        ngx_zeromq_log_error(pc->log, "zmq_socket(ZMQ_REQ)");
+        ngx_log_error(NGX_LOG_ALERT, pc->log, 0,
+                      "zmq_socket(%V) failed (%d: %s)",
+                      &zep->type->name, ngx_errno, zmq_strerror(ngx_errno));
         return NGX_ERROR;
     }
 
@@ -165,10 +181,8 @@ ngx_zeromq_connect(ngx_peer_connection_t *pc)
         goto failed_zmq;
     }
 
-    c->data = zmq;
-
     c->recv = ngx_zeromq_recv;
-    c->send = ngx_zeromq_send;
+    c->send = NULL;
     c->recv_chain = ngx_zeromq_recv_chain;
     c->send_chain = ngx_zeromq_send_chain;
 
@@ -182,10 +196,16 @@ ngx_zeromq_connect(ngx_peer_connection_t *pc)
     rev = c->read;
     wev = c->write;
 
+    rev->data = zc;
+    wev->data = zc;
+
     rev->log = pc->log;
     wev->log = pc->log;
 
     pc->connection = c;
+    zc->connection = *c;
+
+    zc->socket = zmq;
 
     c->number = ngx_atomic_fetch_add(ngx_connection_counter, 1);
 
@@ -194,14 +214,14 @@ ngx_zeromq_connect(ngx_peer_connection_t *pc)
                       "zmq_connect: binding to local address is not supported");
     }
 
-    if (zmq_connect(zmq, (const char *) pc->name->data) == -1) {
+    if (zmq_connect(zmq, (const char *) zep->addr->data) == -1) {
         ngx_zeromq_log_error(pc->log, "zmq_connect()");
         goto failed;
     }
 
-    ngx_log_debug4(NGX_LOG_DEBUG_EVENT, pc->log, 0,
-                   "zmq_connect: lazily connected to %V, zmq:%p fd:%d #%d",
-                   pc->name, zmq, fd, c->number);
+    ngx_log_debug5(NGX_LOG_DEBUG_EVENT, pc->log, 0,
+                   "zmq_connect: lazily connected to %V (%V), zmq:%p fd:%d #%d",
+                   zep->addr, &zep->type->name, zmq, fd, c->number);
 
     if (ngx_add_conn) {
         /* rtsig */
@@ -230,8 +250,8 @@ ngx_zeromq_connect(ngx_peer_connection_t *pc)
      * from it first. Sigh.
      */
 
-    rev->ready = 1;
-    wev->ready = 1;
+    rev->ready = zep->type->can_recv;
+    wev->ready = zep->type->can_send;
 
     return NGX_OK;
 
@@ -435,15 +455,6 @@ ngx_zeromq_send_part(void *zmq, ngx_event_t *wev, u_char *buf, size_t size,
     }
 
     return n;
-}
-
-
-static ssize_t
-ngx_zeromq_send(ngx_connection_t *c, u_char *buf, size_t size)
-{
-    ngx_log_error(NGX_LOG_ALERT, c->log, 0,
-                  "ngx_zeromq_send() must not be called");
-    return NGX_ERROR;
 }
 
 
