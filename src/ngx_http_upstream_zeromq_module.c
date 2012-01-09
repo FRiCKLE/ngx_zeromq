@@ -33,11 +33,19 @@
 
 
 typedef struct {
-    ngx_http_upstream_rr_peer_data_t   rrp;
-    ngx_zeromq_connection_t            zc;
-    ngx_http_request_t                *request;
+    ngx_zeromq_endpoint_t     send;
+    ngx_zeromq_endpoint_t     recv;
+} ngx_http_upstream_zeromq_srv_conf_t;
+
+
+typedef struct {
+    ngx_zeromq_connection_t   zc;
+    ngx_http_request_t       *request;
 } ngx_http_upstream_zeromq_peer_data_t;
 
+
+static ngx_int_t ngx_http_upstream_init_zeromq(ngx_conf_t *cf,
+    ngx_http_upstream_srv_conf_t *us);
 
 static ngx_int_t ngx_http_upstream_init_zeromq_peer(ngx_http_request_t *r,
     ngx_http_upstream_srv_conf_t *us);
@@ -46,16 +54,24 @@ static ngx_int_t ngx_http_upstream_get_zeromq_peer(ngx_peer_connection_t *pc,
 static void ngx_http_upstream_free_zeromq_peer(ngx_peer_connection_t *pc,
     void *data, ngx_uint_t state);
 
-static char *ngx_http_upstream_zeromq(ngx_conf_t *cf, ngx_command_t *cmd,
-    void *conf);
+static void *ngx_http_upstream_zeromq_create_conf(ngx_conf_t *cf);
+static char *ngx_http_upstream_zeromq_endpoint(ngx_conf_t *cf,
+    ngx_command_t *cmd, void *conf);
 
 
 static ngx_command_t  ngx_http_upstream_zeromq_commands[] = {
 
-    { ngx_string("zeromq"),
-      NGX_HTTP_UPS_CONF|NGX_CONF_NOARGS,
-      ngx_http_upstream_zeromq,
-      0,
+    { ngx_string("zeromq_local"),
+      NGX_HTTP_UPS_CONF|NGX_CONF_TAKE2,
+      ngx_http_upstream_zeromq_endpoint,
+      NGX_HTTP_SRV_CONF_OFFSET,
+      1,
+      NULL },
+
+    { ngx_string("zeromq_remote"),
+      NGX_HTTP_UPS_CONF|NGX_CONF_TAKE2,
+      ngx_http_upstream_zeromq_endpoint,
+      NGX_HTTP_SRV_CONF_OFFSET,
       0,
       NULL },
 
@@ -70,7 +86,7 @@ static ngx_http_module_t  ngx_http_upstream_zeromq_module_ctx = {
     NULL,                                  /* create main configuration */
     NULL,                                  /* init main configuration */
 
-    NULL,                                  /* create server configuration */
+    ngx_http_upstream_zeromq_create_conf,  /* create server configuration */
     NULL,                                  /* merge server configuration */
 
     NULL,                                  /* create location configuration */
@@ -94,30 +110,25 @@ ngx_module_t  ngx_http_upstream_zeromq_module = {
 };
 
 
-ngx_int_t
+static ngx_int_t
 ngx_http_upstream_init_zeromq(ngx_conf_t *cf, ngx_http_upstream_srv_conf_t *us)
 {
-    ngx_http_upstream_rr_peers_t  *peers;
-    ngx_str_t                      name;
-    ngx_uint_t                     i;
+    ngx_http_upstream_zeromq_srv_conf_t  *zcf;
 
-    if (ngx_http_upstream_init_round_robin(cf, us) != NGX_OK) {
+    zcf = ngx_http_conf_upstream_srv_conf(us, ngx_http_upstream_zeromq_module);
+
+    if (zcf->send.addr == NULL) {
+        ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+                           "missing sending endpoint in upstream \"%V\"",
+                           &us->host);
         return NGX_ERROR;
     }
 
-    if (us->servers) {
-        peers = us->peer.data;
-
-        for (i = 0; i < peers->number; i++) {
-            name.len = sizeof("tcp://") - 1 + peers->peer[i].name.len;
-            name.data = ngx_pnalloc(cf->pool, name.len + 1);
-
-            (void) ngx_snprintf(name.data, name.len, "tcp://%V",
-                                &peers->peer[i].name);
-            name.data[name.len] = '\0';
-
-            peers->peer[i].name = name;
-        }
+    if (zcf->recv.addr == NULL) {
+        ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+                           "missing receiving endpoint in upstream \"%V\"",
+                           &us->host);
+        return NGX_ERROR;
     }
 
     us->peer.init = ngx_http_upstream_init_zeromq_peer;
@@ -131,29 +142,22 @@ ngx_http_upstream_init_zeromq_peer(ngx_http_request_t *r,
     ngx_http_upstream_srv_conf_t *us)
 {
     ngx_http_upstream_zeromq_peer_data_t  *zp;
+    ngx_http_upstream_zeromq_srv_conf_t   *zcf;
 
     zp = ngx_palloc(r->pool, sizeof(ngx_http_upstream_zeromq_peer_data_t));
     if (zp == NULL) {
         return NGX_ERROR;
     }
 
-    zp->zc.endpoint = ngx_palloc(r->pool, sizeof(ngx_zeromq_endpoint_t));
-    if (zp->zc.endpoint == NULL) {
-        return NGX_ERROR;
-    }
+    zcf = ngx_http_conf_upstream_srv_conf(us, ngx_http_upstream_zeromq_module);
 
-    zp->zc.endpoint->type = &ngx_zeromq_socket_types[0];
-    zp->zc.endpoint->bind = 0;
+    zp->zc.endpoint = &zcf->send;
+    zp->zc.socket = NULL;
 
     zp->request = r;
     ngx_http_set_ctx(r, NULL, ngx_zeromq_module);
 
-    r->upstream->peer.data = &zp->rrp;
-
-    if (ngx_http_upstream_init_round_robin_peer(r, us) != NGX_OK) {
-        return NGX_ERROR;
-    }
-
+    r->upstream->peer.data = zp;
     r->upstream->peer.get = ngx_http_upstream_get_zeromq_peer;
     r->upstream->peer.free = ngx_http_upstream_free_zeromq_peer;
 
@@ -166,13 +170,6 @@ ngx_http_upstream_get_zeromq_peer(ngx_peer_connection_t *pc, void *data)
 {
     ngx_http_upstream_zeromq_peer_data_t  *zp = data;
     ngx_int_t                              rc;
-
-    rc = ngx_http_upstream_get_round_robin_peer(pc, data);
-    if (rc != NGX_OK) {
-        return rc;
-    }
-
-    zp->zc.endpoint->addr = pc->name;
 
     pc->data = &zp->zc;
     rc = ngx_zeromq_connect(pc);
@@ -195,8 +192,6 @@ ngx_http_upstream_free_zeromq_peer(ngx_peer_connection_t *pc, void *data,
 {
     ngx_http_upstream_zeromq_peer_data_t  *zp = data;
 
-    ngx_http_upstream_free_round_robin_peer(pc, data, state);
-
     if (pc->connection) {
 #if defined(nginx_version) && (nginx_version >= 1001004)
         if (pc->connection->pool) {
@@ -211,19 +206,90 @@ ngx_http_upstream_free_zeromq_peer(ngx_peer_connection_t *pc, void *data,
 }
 
 
-static char *
-ngx_http_upstream_zeromq(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
+static void *
+ngx_http_upstream_zeromq_create_conf(ngx_conf_t *cf)
 {
-    ngx_http_upstream_srv_conf_t  *uscf;
+    ngx_http_upstream_zeromq_srv_conf_t  *conf;
+
+    conf = ngx_pcalloc(cf->pool, sizeof(ngx_http_upstream_zeromq_srv_conf_t));
+    if (conf == NULL) {
+        return NULL;
+    }
+
+    /*
+     * set by ngx_pcalloc():
+     *
+     *     conf->send.type = NULL;
+     *     conf->send.addr = NULL;
+     *     conf->send.bind = 0;
+     *
+     *     conf->recv.type = NULL;
+     *     conf->recv.addr = NULL;
+     *     conf->recv.bind = 0;
+     */
+
+    return conf;
+}
+
+
+static char *
+ngx_http_upstream_zeromq_endpoint(ngx_conf_t *cf, ngx_command_t *cmd,
+    void *conf)
+{
+    ngx_str_t                            *value = cf->args->elts;
+    ngx_http_upstream_zeromq_srv_conf_t  *zcf = conf;
+    ngx_http_upstream_srv_conf_t         *uscf;
+    ngx_zeromq_socket_t                  *type;
+    ngx_uint_t                            i;
 
     uscf = ngx_http_conf_get_module_srv_conf(cf, ngx_http_upstream_module);
 
-    uscf->peer.init_upstream = ngx_http_upstream_init_zeromq;
+    type = ngx_zeromq_socket_types;
+    for (i = 0; type[i].value; i++) {
+        if (ngx_strcmp(value[1].data, type[i].name.data) == 0) {
+            break;
+        }
+    }
 
-    uscf->flags = NGX_HTTP_UPSTREAM_CREATE
-                  |NGX_HTTP_UPSTREAM_MAX_FAILS
-                  |NGX_HTTP_UPSTREAM_FAIL_TIMEOUT
-                  |NGX_HTTP_UPSTREAM_DOWN;
+    if (type[i].value == 0) {
+        ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+                           "invalid socket type \"%V\" in upstream \"%V\"",
+                           &value[1], &uscf->host);
+        return NGX_CONF_ERROR;
+    }
+
+    if (type[i].can_send) {
+        if (zcf->send.addr) {
+            ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+                               "sending endpoint already set to"
+                               " \"%V\" (%V) in upstream \"%V\"",
+                               zcf->send.addr, &zcf->send.type->name,
+                               &uscf->host);
+            return NGX_CONF_ERROR;
+        }
+
+        zcf->send.type = &type[i];
+        zcf->send.addr = &value[2];
+        zcf->send.bind = cmd->offset;
+    }
+
+    if (type[i].can_recv) {
+        if (zcf->recv.addr) {
+            ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+                               "receivng endpoint already set to"
+                               " \"%V\" (%V) in upstream \"%V\"",
+                               zcf->recv.addr, &zcf->recv.type->name,
+                               &uscf->host);
+            return NGX_CONF_ERROR;
+        }
+
+        zcf->recv.type = &type[i];
+        zcf->recv.addr = &value[2];
+        zcf->recv.bind = cmd->offset;
+    }
+
+    uscf->servers = (ngx_array_t *) -1;
+    uscf->peer.init_upstream = ngx_http_upstream_init_zeromq;
 
     zmq_used = 1;
 
