@@ -143,6 +143,7 @@ ngx_http_upstream_init_zeromq_peer(ngx_http_request_t *r,
     }
 
     zp->zc.endpoint->type = &ngx_zeromq_socket_types[0];
+    zp->zc.endpoint->bind = 0;
 
     zp->request = r;
     ngx_http_set_ctx(r, NULL, ngx_zeromq_module);

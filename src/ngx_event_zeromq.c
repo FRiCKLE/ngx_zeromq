@@ -143,7 +143,7 @@ ngx_zeromq_connect(ngx_peer_connection_t *pc)
     ngx_zeromq_connection_t  *zc = pc->data;
     ngx_zeromq_endpoint_t    *zep;
     ngx_connection_t         *c;
-    ngx_event_t              *rev, *wev;
+    ngx_event_t              *rev, *wev, *ev;
     void                     *zmq;
     int                       fd, zero;
     size_t                    fdsize;
@@ -214,13 +214,26 @@ ngx_zeromq_connect(ngx_peer_connection_t *pc)
                       "zmq_connect: binding to local address is not supported");
     }
 
-    if (zmq_connect(zmq, (const char *) zep->addr->data) == -1) {
-        ngx_zeromq_log_error(pc->log, "zmq_connect()");
-        goto failed;
+    if (zep->bind) {
+        if (zmq_bind(zmq, (const char *) zep->addr->data) == -1) {
+            ngx_zeromq_log_error(pc->log, "zmq_bind()");
+            goto failed;
+        }
+
+        ev = wev;
+
+    } else {
+        if (zmq_connect(zmq, (const char *) zep->addr->data) == -1) {
+            ngx_zeromq_log_error(pc->log, "zmq_connect()");
+            goto failed;
+        }
+
+        ev = rev;
     }
 
-    ngx_log_debug5(NGX_LOG_DEBUG_EVENT, pc->log, 0,
-                   "zmq_connect: lazily connected to %V (%V), zmq:%p fd:%d #%d",
+    ngx_log_debug6(NGX_LOG_DEBUG_EVENT, pc->log, 0,
+                   "zmq_connect: lazily %s to %V (%V), zmq:%p fd:%d #%d",
+                   zep->bind ? "bound" : "connected",
                    zep->addr, &zep->type->name, zmq, fd, c->number);
 
     if (ngx_add_conn) {
@@ -232,13 +245,13 @@ ngx_zeromq_connect(ngx_peer_connection_t *pc)
     } else {
         if (ngx_event_flags & NGX_USE_CLEAR_EVENT) {
             /* kqueue, epoll */
-            if (ngx_add_event(rev, NGX_READ_EVENT, NGX_CLEAR_EVENT) != NGX_OK) {
+            if (ngx_add_event(ev, NGX_READ_EVENT, NGX_CLEAR_EVENT) != NGX_OK) {
                 goto failed;
             }
 
         } else {
             /* select, poll, /dev/poll */
-            if (ngx_add_event(rev, NGX_READ_EVENT, NGX_LEVEL_EVENT) != NGX_OK) {
+            if (ngx_add_event(ev, NGX_READ_EVENT, NGX_LEVEL_EVENT) != NGX_OK) {
                 goto failed;
             }
         }

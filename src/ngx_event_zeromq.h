@@ -45,6 +45,7 @@ typedef struct {
 typedef struct {
     ngx_zeromq_socket_t    *type;
     ngx_str_t              *addr;
+    unsigned                bind:1;
 } ngx_zeromq_endpoint_t;
 
 
