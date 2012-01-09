@@ -48,13 +48,22 @@ zeromq_threads
 Configure number of ZeroMQ I/O threads to be used by each worker process.
 
 
-zeromq
-------
-* **syntax**: `zeromq`
+zeromq_local
+------------
+* **syntax**: `zeromq_local socket_type local_endpoint`
 * **default**: `none`
 * **context**: `upstream`
 
-Use ZeroMQ transport layer for servers defined in the upstream block.
+Configure local ZeroMQ endpoint.
+
+
+zeromq_remote
+-------------
+* **syntax**: `zeromq_remote socket_type remote_endpoint`
+* **default**: `none`
+* **context**: `upstream`
+
+Configure remote ZeroMQ endpoint.
 
 
 Sample configuration
@@ -63,8 +72,7 @@ Use HTTP over ZeroMQ (using standard `proxy` module).
 
     http {
         upstream blackhole {
-            server  127.0.0.1:8000;
-            zeromq;
+            zeromq_remote   REQ tcp://127.0.0.1:5555;
         }
 
         server {
