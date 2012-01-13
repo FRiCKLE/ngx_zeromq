@@ -41,7 +41,7 @@ Configuration directives
 ========================
 zeromq_threads
 --------------
-* **syntax**: `zeromq_threads num`
+* **syntax**: `zeromq_threads <number>`
 * **default**: `1`
 * **context**: `main`
 
@@ -50,20 +50,32 @@ Configure number of ZeroMQ I/O threads to be used by each worker process.
 
 zeromq_local
 ------------
-* **syntax**: `zeromq_local socket_type local_endpoint`
+* **syntax**: `zeromq_local <socket_type> <local_endpoint>`
 * **default**: `none`
 * **context**: `upstream`
 
-Configure local ZeroMQ endpoint.
+Configure local ZeroMQ endpoint (must use random port numbers).
 
 
 zeromq_remote
 -------------
-* **syntax**: `zeromq_remote socket_type remote_endpoint`
+* **syntax**: `zeromq_remote <socket_type> <remote_endpoint>`
 * **default**: `none`
 * **context**: `upstream`
 
-Configure remote ZeroMQ endpoint.
+Configure remote ZeroMQ endpoint (cannot use random port numbers).
+
+
+zeromq_single
+-------------
+* **syntax**: `zeromq_single on|off`
+* **default**: `off`
+* **context**: `upstream`
+
+Enable `single` mode which allows use of predefined port numbers for local
+endpoints. It comes at a price (only one worker can bind to such endpoint
+and it will stop working after `nginx` reload) and it's supposed to be used
+only during testing and development. Do not use this mode in production.
 
 
 Sample configuration

@@ -48,6 +48,7 @@ typedef struct {
 
 static void *ngx_zeromq_get_socket(ngx_connection_t *c);
 static void ngx_zeromq_log_error(ngx_log_t *log, const char *text);
+static void ngx_zeromq_randomized_endpoint_regen(ngx_str_t *addr);
 
 static ngx_int_t ngx_zeromq_ready(void *zmq, ngx_event_t *ev, const char *what,
     uint32_t want);
@@ -137,6 +138,49 @@ ngx_zeromq_log_error(ngx_log_t *log, const char *text)
 }
 
 
+ngx_zeromq_endpoint_t *
+ngx_zeromq_randomized_endpoint(ngx_zeromq_endpoint_t *zep, ngx_pool_t *pool)
+{
+    ngx_zeromq_endpoint_t  *rand;
+
+    rand = ngx_palloc(pool, sizeof(ngx_zeromq_endpoint_t));
+    if (rand == NULL) {
+        return NULL;
+    }
+
+    ngx_memcpy(rand, zep, sizeof(ngx_zeromq_endpoint_t));
+
+    rand->addr.data = ngx_pnalloc(pool, zep->addr.len + sizeof("65535"));
+    ngx_memcpy(rand->addr.data, zep->addr.data, zep->addr.len);
+
+    return rand;
+}
+
+
+static void
+ngx_zeromq_randomized_endpoint_regen(ngx_str_t *addr)
+{
+    in_port_t   port;
+    u_char     *p;
+
+    p = addr->data + addr->len;
+
+    while (p > addr->data) {
+        if (*p == ':') {
+            break;
+        }
+
+        p--;
+    }
+
+    port = 1024 + ngx_pid + ngx_random();
+
+    addr->len = ngx_snprintf(p + 1, sizeof("65535") - 1, "%d", port)
+                - addr->data;
+    addr->data[addr->len] = '\0';
+}
+
+
 ngx_int_t
 ngx_zeromq_connect(ngx_peer_connection_t *pc)
 {
@@ -147,6 +191,7 @@ ngx_zeromq_connect(ngx_peer_connection_t *pc)
     void                     *zmq;
     int                       fd, zero;
     size_t                    fdsize;
+    ngx_uint_t                i;
 
     if (zc == NULL || zc->endpoint == NULL) {
         return NGX_ERROR;
@@ -215,15 +260,34 @@ ngx_zeromq_connect(ngx_peer_connection_t *pc)
     }
 
     if (zep->bind) {
-        if (zmq_bind(zmq, (const char *) zep->addr->data) == -1) {
-            ngx_zeromq_log_error(pc->log, "zmq_bind()");
-            goto failed;
+        if (zep->rand) {
+            for (i = 0; ; i++) {
+                ngx_zeromq_randomized_endpoint_regen(&zep->addr);
+
+                if (zmq_bind(zmq, (const char *) zep->addr.data) == -1) {
+
+                    if (ngx_errno == NGX_EADDRINUSE && i < 65535) {
+                        continue;
+                    }
+
+                    ngx_zeromq_log_error(pc->log, "zmq_bind()");
+                    goto failed;
+                }
+
+                break;
+            }
+
+        } else {
+            if (zmq_bind(zmq, (const char *) zep->addr.data) == -1) {
+                ngx_zeromq_log_error(pc->log, "zmq_bind()");
+                goto failed;
+            }
         }
 
         ev = wev;
 
     } else {
-        if (zmq_connect(zmq, (const char *) zep->addr->data) == -1) {
+        if (zmq_connect(zmq, (const char *) zep->addr.data) == -1) {
             ngx_zeromq_log_error(pc->log, "zmq_connect()");
             goto failed;
         }
@@ -231,10 +295,10 @@ ngx_zeromq_connect(ngx_peer_connection_t *pc)
         ev = rev;
     }
 
-    ngx_log_debug6(NGX_LOG_DEBUG_EVENT, pc->log, 0,
-                   "zmq_connect: lazily %s to %V (%V), zmq:%p fd:%d #%d",
-                   zep->bind ? "bound" : "connected",
-                   zep->addr, &zep->type->name, zmq, fd, c->number);
+    ngx_log_debug7(NGX_LOG_DEBUG_EVENT, pc->log, 0,
+                   "zmq_connect: %s to %V (%V), fd:%d #%d zc:%p zmq:%p",
+                   zep->bind ? "bound" : "lazily connected",
+                   &zep->addr, &zep->type->name, fd, c->number, zc, zmq);
 
     if (ngx_add_conn) {
         /* rtsig */

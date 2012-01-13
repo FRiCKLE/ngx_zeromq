@@ -44,8 +44,9 @@ typedef struct {
 
 typedef struct {
     ngx_zeromq_socket_t    *type;
-    ngx_str_t              *addr;
+    ngx_str_t               addr;
     unsigned                bind:1;
+    unsigned                rand:1;
 } ngx_zeromq_endpoint_t;
 
 
@@ -56,6 +57,9 @@ typedef struct {
     void                   *socket;
 } ngx_zeromq_connection_t;
 
+
+ngx_zeromq_endpoint_t *ngx_zeromq_randomized_endpoint(
+    ngx_zeromq_endpoint_t *zep, ngx_pool_t *pool);
 
 ngx_int_t ngx_zeromq_connect(ngx_peer_connection_t *pc);
 void ngx_zeromq_close(ngx_connection_t *c);
