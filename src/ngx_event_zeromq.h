@@ -52,6 +52,7 @@ typedef struct {
 
 typedef struct {
     ngx_connection_t        connection;
+    ngx_connection_t       *connection_ptr;
 
     ngx_zeromq_endpoint_t  *endpoint;
     void                   *socket;
@@ -62,10 +63,8 @@ ngx_zeromq_endpoint_t *ngx_zeromq_randomized_endpoint(
     ngx_zeromq_endpoint_t *zep, ngx_pool_t *pool);
 
 ngx_int_t ngx_zeromq_connect(ngx_peer_connection_t *pc);
-void ngx_zeromq_close(ngx_connection_t *c);
+void ngx_zeromq_close(ngx_zeromq_connection_t *zc);
 
-
-extern ngx_module_t         ngx_zeromq_module;
 
 extern ngx_zeromq_socket_t  ngx_zeromq_socket_types[];
 extern int                  zmq_used;

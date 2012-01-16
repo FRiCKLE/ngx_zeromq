@@ -181,7 +181,6 @@ ngx_http_upstream_init_zeromq_peer(ngx_http_request_t *r,
     }
 
     zp->request = r;
-    ngx_http_set_ctx(r, NULL, ngx_zeromq_module);
 
     r->upstream->peer.data = zp;
     r->upstream->peer.get = ngx_http_upstream_get_zeromq_peer;
@@ -206,7 +205,6 @@ ngx_http_upstream_get_zeromq_peer(ngx_peer_connection_t *pc, void *data)
     }
 
     zp->zc.connection.data = zp->request;
-    ngx_http_set_ctx(zp->request, zp->zc.socket, ngx_zeromq_module);
 
     return NGX_DONE;
 }
@@ -225,8 +223,7 @@ ngx_http_upstream_free_zeromq_peer(ngx_peer_connection_t *pc, void *data,
         }
 #endif
 
-        pc->connection->data = zp->zc.socket;
-        ngx_zeromq_close(pc->connection);
+        ngx_zeromq_close(&zp->zc);
         pc->connection = NULL;
     }
 }

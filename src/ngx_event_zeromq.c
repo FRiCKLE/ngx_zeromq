@@ -46,7 +46,6 @@ typedef struct {
 } ngx_zeromq_conf_t;
 
 
-static void *ngx_zeromq_get_socket(ngx_connection_t *c);
 static void ngx_zeromq_log_error(ngx_log_t *log, const char *text);
 static void ngx_zeromq_randomized_endpoint_regen(ngx_str_t *addr);
 
@@ -120,14 +119,6 @@ ngx_module_t  ngx_zeromq_module = {
 
 void *zmq_context;
 int   zmq_used;
-
-
-static void *
-ngx_zeromq_get_socket(ngx_connection_t *c)
-{
-    ngx_http_request_t  *r = c->data;
-    return ngx_http_get_module_ctx(r, ngx_zeromq_module);
-}
 
 
 static void
@@ -226,6 +217,8 @@ ngx_zeromq_connect(ngx_peer_connection_t *pc)
         goto failed_zmq;
     }
 
+    c->number = ngx_atomic_fetch_add(ngx_connection_counter, 1);
+
     c->recv = ngx_zeromq_recv;
     c->send = NULL;
     c->recv_chain = ngx_zeromq_recv_chain;
@@ -247,12 +240,12 @@ ngx_zeromq_connect(ngx_peer_connection_t *pc)
     rev->log = pc->log;
     wev->log = pc->log;
 
-    pc->connection = c;
-    zc->connection = *c;
+    pc->connection = &zc->connection;
+    zc->connection_ptr = c;
+
+    memcpy(&zc->connection, c, sizeof(ngx_connection_t));
 
     zc->socket = zmq;
-
-    c->number = ngx_atomic_fetch_add(ngx_connection_counter, 1);
 
     if (pc->local) {
         ngx_log_error(NGX_LOG_WARN, pc->log, 0,
@@ -349,18 +342,19 @@ failed_zmq:
 
 
 void
-ngx_zeromq_close(ngx_connection_t *c)
+ngx_zeromq_close(ngx_zeromq_connection_t *zc)
 {
-    void  *zmq;
+    ngx_connection_t  *c;
+
+    c = &zc->connection;
 
     if (c->fd == -1) {
         return;
     }
 
-    zmq = c->data;
-
-    ngx_log_debug3(NGX_LOG_DEBUG_EVENT, c->log, 0,
-                   "zmq_close: zmq:%p fd:%d #%d", zmq, c->fd, c->number);
+    ngx_log_debug4(NGX_LOG_DEBUG_EVENT, c->log, 0,
+                   "zmq_close: fd:%d #%d zc:%p zmq:%p",
+                   c->fd, c->number, zc, zc->socket);
 
     if (c->read->timer_set) {
         ngx_del_timer(c->read);
@@ -394,13 +388,14 @@ ngx_zeromq_close(ngx_connection_t *c)
     c->read->closed = 1;
     c->write->closed = 1;
 
-    ngx_reusable_connection(c, 0);
+    ngx_reusable_connection(zc->connection_ptr, 0);
 
-    ngx_free_connection(c);
+    ngx_free_connection(zc->connection_ptr);
 
     c->fd = (ngx_socket_t) -1;
+    zc->connection_ptr->fd = (ngx_socket_t) -1;
 
-    if (zmq_close(zmq) == -1) {
+    if (zmq_close(zc->socket) == -1) {
         ngx_zeromq_log_error(ngx_cycle->log, "zmq_close()");
     }
 }
@@ -538,16 +533,18 @@ ngx_zeromq_send_part(void *zmq, ngx_event_t *wev, u_char *buf, size_t size,
 static ngx_chain_t *
 ngx_zeromq_send_chain(ngx_connection_t *c, ngx_chain_t *in, off_t limit)
 {
-    ngx_event_t  *wev;
-    ngx_chain_t  *cl;
-    ngx_buf_t    *b;
-    ngx_int_t     rc;
-    void         *zmq;
-    ssize_t       n;
+    ngx_zeromq_connection_t  *zc;
+    ngx_event_t              *wev;
+    ngx_chain_t              *cl;
+    ngx_buf_t                *b;
+    ngx_int_t                 rc;
+    void                     *zmq;
+    ssize_t                   n;
 
     wev = c->write;
 
-    zmq = ngx_zeromq_get_socket(c);
+    zc = (ngx_zeromq_connection_t *) c;
+    zmq = zc->socket;
 
     rc = ngx_zeromq_ready(zmq, wev, "zmq_send", ZMQ_POLLOUT);
 
@@ -622,11 +619,12 @@ done:
 static ssize_t
 ngx_zeromq_recv(ngx_connection_t *c, u_char *buf, size_t size)
 {
-    ngx_http_request_t  *r;
-    ngx_event_t         *rev;
-    ngx_int_t            rc;
-    void                *zmq;
-    ssize_t              n;
+    ngx_zeromq_connection_t  *zc;
+    ngx_http_request_t       *r;
+    ngx_event_t              *rev;
+    ngx_int_t                 rc;
+    void                     *zmq;
+    ssize_t                   n;
 
     rev = c->read;
 
@@ -635,7 +633,8 @@ ngx_zeromq_recv(ngx_connection_t *c, u_char *buf, size_t size)
         return 0;
     }
 
-    zmq = ngx_zeromq_get_socket(c);
+    zc = (ngx_zeromq_connection_t *) c;
+    zmq = zc->socket;
 
     rc = ngx_zeromq_ready(zmq, rev, "zmq_recv", ZMQ_POLLIN);
     if (rc < 0) {
@@ -666,11 +665,12 @@ ngx_zeromq_recv(ngx_connection_t *c, u_char *buf, size_t size)
 static ssize_t
 ngx_zeromq_recv_chain(ngx_connection_t *c, ngx_chain_t *cl)
 {
-    ngx_event_t  *rev;
-    ngx_buf_t    *b;
-    ngx_int_t     rc;
-    void         *zmq;
-    ssize_t       n, size;
+    ngx_zeromq_connection_t  *zc;
+    ngx_event_t              *rev;
+    ngx_buf_t                *b;
+    ngx_int_t                 rc;
+    void                     *zmq;
+    ssize_t                   n, size;
 
     rev = c->read;
 
@@ -679,7 +679,8 @@ ngx_zeromq_recv_chain(ngx_connection_t *c, ngx_chain_t *cl)
         return 0;
     }
 
-    zmq = ngx_zeromq_get_socket(c);
+    zc = (ngx_zeromq_connection_t *) c;
+    zmq = zc->socket;
 
     rc = ngx_zeromq_ready(zmq, rev, "zmq_recv", ZMQ_POLLIN);
     if (rc < 0) {
