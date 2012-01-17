@@ -40,7 +40,9 @@ typedef struct {
 
 
 typedef struct {
-    ngx_zeromq_connection_t   zc;
+    ngx_zeromq_connection_t   send;
+    ngx_zeromq_connection_t   recv;
+
     ngx_http_request_t       *request;
 } ngx_http_upstream_zeromq_peer_data_t;
 
@@ -171,13 +173,29 @@ ngx_http_upstream_init_zeromq_peer(ngx_http_request_t *r,
     zcf = ngx_http_conf_upstream_srv_conf(us, ngx_http_upstream_zeromq_module);
 
     if (zcf->send->rand) {
-        zp->zc.endpoint = ngx_zeromq_randomized_endpoint(zcf->send, r->pool);
-        if (zp->zc.endpoint == NULL) {
+        zp->send.endpoint = ngx_zeromq_randomized_endpoint(zcf->send, r->pool);
+        if (zp->send.endpoint == NULL) {
             return NGX_ERROR;
         }
 
     } else {
-        zp->zc.endpoint = zcf->send;
+        zp->send.endpoint = zcf->send;
+    }
+
+    if (zcf->recv != zcf->send) {
+        if (zcf->recv->rand) {
+            zp->recv.endpoint = ngx_zeromq_randomized_endpoint(zcf->recv,
+                                                               r->pool);
+            if (zp->recv.endpoint == NULL) {
+                return NGX_ERROR;
+            }
+
+        } else {
+            zp->recv.endpoint = zcf->recv;
+        }
+
+    } else {
+        zp->recv.endpoint = zp->send.endpoint;
     }
 
     zp->request = r;
@@ -196,7 +214,19 @@ ngx_http_upstream_get_zeromq_peer(ngx_peer_connection_t *pc, void *data)
     ngx_http_upstream_zeromq_peer_data_t  *zp = data;
     ngx_int_t                              rc;
 
-    pc->data = &zp->zc;
+    if (zp->recv.endpoint != zp->send.endpoint) {
+        pc->data = &zp->recv;
+        rc = ngx_zeromq_connect(pc);
+        pc->data = data;
+
+        if (rc != NGX_OK) {
+            return rc;
+        }
+
+        zp->recv.connection.data = zp->request;
+    }
+
+    pc->data = &zp->send;
     rc = ngx_zeromq_connect(pc);
     pc->data = data;
 
@@ -204,7 +234,12 @@ ngx_http_upstream_get_zeromq_peer(ngx_peer_connection_t *pc, void *data)
         return rc;
     }
 
-    zp->zc.connection.data = zp->request;
+    zp->send.connection.data = zp->request;
+
+    if (zp->recv.endpoint != zp->send.endpoint) {
+        zp->send.recv = zp->recv.recv;
+        zp->recv.send = zp->send.send;
+    }
 
     return NGX_DONE;
 }
@@ -223,8 +258,17 @@ ngx_http_upstream_free_zeromq_peer(ngx_peer_connection_t *pc, void *data,
         }
 #endif
 
-        ngx_zeromq_close(&zp->zc);
         pc->connection = NULL;
+    }
+
+    if (zp->recv.endpoint != zp->send.endpoint) {
+        if (zp->recv.socket) {
+            ngx_zeromq_close(&zp->recv);
+        }
+    }
+
+    if (zp->send.socket) {
+        ngx_zeromq_close(&zp->send);
     }
 }
 

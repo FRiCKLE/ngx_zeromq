@@ -248,6 +248,14 @@ ngx_zeromq_connect(ngx_peer_connection_t *pc)
 
     memcpy(&zc->connection, c, sizeof(ngx_connection_t));
 
+    if (zep->type->can_send) {
+        zc->send = zc;
+    }
+
+    if (zep->type->can_recv) {
+        zc->recv = zc;
+    }
+
     zc->socket = zmq;
 
     if (pc->local) {
@@ -336,6 +344,8 @@ failed_zmq:
         ngx_zeromq_log_error(pc->log, "zmq_close()");
     }
 
+    zc->socket = NULL;
+
     return NGX_ERROR;
 }
 
@@ -397,6 +407,8 @@ ngx_zeromq_close(ngx_zeromq_connection_t *zc)
     if (zmq_close(zc->socket) == -1) {
         ngx_zeromq_log_error(ngx_cycle->log, "zmq_close()");
     }
+
+    zc->socket = NULL;
 }
 
 
@@ -405,6 +417,7 @@ ngx_zeromq_event_handler(ngx_event_t *ev)
 {
     ngx_zeromq_connection_t  *zc;
     ngx_connection_t         *c;
+    void                     *zmq;
     uint32_t                  events;
     size_t                    esize;
 
@@ -420,17 +433,39 @@ ngx_zeromq_event_handler(ngx_event_t *ev)
     }
 
     zc = ev->data;
-    c = &zc->connection;
+    zc = zc->send;
 
     esize = sizeof(uint32_t);
 
-    if (zmq_getsockopt(zc->socket, ZMQ_EVENTS, &events, &esize) == -1) {
+#if (NGX_DEBUG)
+    if (zc->recv != zc->send) {
+        zmq = zc->request_sent ? zc->socket : zc->recv->socket;
+
+        if (zmq_getsockopt(zmq, ZMQ_EVENTS, &events, &esize) == -1) {
+            ngx_zeromq_log_error(ev->log, "zmq_getsockopt(ZMQ_EVENTS)");
+            ev->error = 1;
+            return;
+        }
+
+        ngx_log_debug2(NGX_LOG_DEBUG_EVENT, ev->log, 0,
+                       "zmq_event: %s:%d (ignored)",
+                       zc->request_sent ? "send" : "recv", events);
+    }
+#endif
+
+    zmq = zc->request_sent ? zc->recv->socket : zc->socket;
+
+    if (zmq_getsockopt(zmq, ZMQ_EVENTS, &events, &esize) == -1) {
         ngx_zeromq_log_error(ev->log, "zmq_getsockopt(ZMQ_EVENTS)");
         ev->error = 1;
         return;
     }
 
-    ngx_log_debug1(NGX_LOG_DEBUG_EVENT, ev->log, 0, "zmq_event: %d", events);
+    ngx_log_debug2(NGX_LOG_DEBUG_EVENT, ev->log, 0,
+                   "zmq_event: %s:%d",
+                   zc->request_sent ? "recv" : "send", events);
+
+    c = &zc->connection;
 
     if (zc->request_sent) {
         c->read->ready = events & ZMQ_POLLIN ? 1 : 0;
@@ -672,7 +707,7 @@ ngx_zeromq_recv(ngx_connection_t *c, u_char *buf, size_t size)
     }
 
     zc = (ngx_zeromq_connection_t *) c;
-    zmq = zc->socket;
+    zmq = zc->recv->socket;
 
     n = ngx_zeromq_recv_part(zmq, rev, buf, size);
     if (n < 0) {
@@ -712,7 +747,7 @@ ngx_zeromq_recv_chain(ngx_connection_t *c, ngx_chain_t *cl)
     }
 
     zc = (ngx_zeromq_connection_t *) c;
-    zmq = zc->socket;
+    zmq = zc->recv->socket;
 
     size = 0;
 

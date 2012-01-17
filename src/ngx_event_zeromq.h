@@ -34,33 +34,38 @@
 #include <ngx_event_connect.h>
 
 
+typedef struct ngx_zeromq_connection_s  ngx_zeromq_connection_t;
+
 typedef struct {
-    ngx_str_t               name;
-    int                     value;
-    unsigned                can_send:1;
-    unsigned                can_recv:1;
+    ngx_str_t                 name;
+    int                       value;
+    unsigned                  can_send:1;
+    unsigned                  can_recv:1;
 } ngx_zeromq_socket_t;
 
 
 typedef struct {
-    ngx_zeromq_socket_t    *type;
-    ngx_str_t               addr;
-    unsigned                bind:1;
-    unsigned                rand:1;
+    ngx_zeromq_socket_t      *type;
+    ngx_str_t                 addr;
+    unsigned                  bind:1;
+    unsigned                  rand:1;
 } ngx_zeromq_endpoint_t;
 
 
-typedef struct {
-    ngx_connection_t        connection;
-    ngx_connection_t       *connection_ptr;
+struct ngx_zeromq_connection_s {
+    ngx_connection_t          connection;
+    ngx_connection_t         *connection_ptr;
 
-    ngx_zeromq_endpoint_t  *endpoint;
-    void                   *socket;
+    ngx_zeromq_endpoint_t    *endpoint;
+    void                     *socket;
 
-    ngx_event_handler_pt    handler;
+    ngx_event_handler_pt      handler;
 
-    unsigned                request_sent:1;
-} ngx_zeromq_connection_t;
+    ngx_zeromq_connection_t  *send;
+    ngx_zeromq_connection_t  *recv;
+
+    unsigned                  request_sent:1;
+};
 
 
 ngx_zeromq_endpoint_t *ngx_zeromq_randomized_endpoint(
