@@ -56,6 +56,10 @@ typedef struct {
 
     ngx_zeromq_endpoint_t  *endpoint;
     void                   *socket;
+
+    ngx_event_handler_pt    handler;
+
+    unsigned                request_sent:1;
 } ngx_zeromq_connection_t;
 
 
