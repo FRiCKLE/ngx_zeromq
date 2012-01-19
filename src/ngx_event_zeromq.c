@@ -248,6 +248,8 @@ ngx_zeromq_connect(ngx_peer_connection_t *pc)
 
     memcpy(&zc->connection, c, sizeof(ngx_connection_t));
 
+    zc->socket = zmq;
+
     if (zep->type->can_send) {
         zc->send = zc;
     }
@@ -255,8 +257,6 @@ ngx_zeromq_connect(ngx_peer_connection_t *pc)
     if (zep->type->can_recv) {
         zc->recv = zc;
     }
-
-    zc->socket = zmq;
 
     if (pc->local) {
         ngx_log_error(NGX_LOG_WARN, pc->log, 0,
@@ -338,13 +338,14 @@ failed:
 
     c->fd = (ngx_socket_t) -1;
 
+    pc->connection = NULL;
+    zc->socket = NULL;
+
 failed_zmq:
 
     if (zmq_close(zmq) == -1) {
         ngx_zeromq_log_error(pc->log, "zmq_close()");
     }
-
-    zc->socket = NULL;
 
     return NGX_ERROR;
 }
