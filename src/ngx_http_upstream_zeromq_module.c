@@ -201,6 +201,8 @@ ngx_http_upstream_init_zeromq_peer(ngx_http_request_t *r,
     zp->request = r;
 
     r->upstream->peer.data = zp;
+    r->upstream->peer.name = &zp->send.endpoint->addr;
+
     r->upstream->peer.get = ngx_http_upstream_get_zeromq_peer;
     r->upstream->peer.free = ngx_http_upstream_free_zeromq_peer;
 
