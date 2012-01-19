@@ -117,8 +117,8 @@ ngx_module_t  ngx_zeromq_module = {
 };
 
 
-void *zmq_context;
-int   zmq_used;
+static void  *ngx_zeromq_context;
+ngx_int_t     ngx_zeromq_used;
 
 
 static void
@@ -184,13 +184,9 @@ ngx_zeromq_connect(ngx_peer_connection_t *pc)
     size_t                    fdsize;
     ngx_uint_t                i;
 
-    if (zc == NULL || zc->endpoint == NULL) {
-        return NGX_ERROR;
-    }
-
     zep = zc->endpoint;
 
-    zmq = zmq_socket(zmq_context, zep->type->value);
+    zmq = zmq_socket(ngx_zeromq_context, zep->type->value);
     if (zmq == NULL) {
         ngx_log_error(NGX_LOG_ALERT, pc->log, 0,
                       "zmq_socket(%V) failed (%d: %s)",
@@ -780,7 +776,7 @@ ngx_zeromq_create_conf(ngx_cycle_t *cycle)
 {
     ngx_zeromq_conf_t  *zcf;
 
-    zmq_used = 0;
+    ngx_zeromq_used = 0;
 
     zcf = ngx_pcalloc(cycle->pool, sizeof(ngx_zeromq_conf_t));
     if (zcf == NULL) {
@@ -836,7 +832,9 @@ ngx_zeromq_module_init(ngx_cycle_t *cycle)
 {
     int  a, b, c;
 
-    if (zmq_used && !ngx_test_config && ngx_process <= NGX_PROCESS_MASTER) {
+    if (ngx_zeromq_used && !ngx_test_config
+        && ngx_process <= NGX_PROCESS_MASTER)
+    {
         zmq_version(&a, &b, &c);
         ngx_log_error(NGX_LOG_NOTICE, cycle->log, 0,
                       "using ZeroMQ/%d.%d.%d", a, b, c);
@@ -854,10 +852,10 @@ ngx_zeromq_process_init(ngx_cycle_t *cycle)
     zcf = (ngx_zeromq_conf_t *) ngx_get_conf(cycle->conf_ctx,
                                              ngx_zeromq_module);
 
-    if (zmq_used) {
-        zmq_context = zmq_init(zcf->threads);
+    if (ngx_zeromq_used) {
+        ngx_zeromq_context = zmq_init(zcf->threads);
 
-        if (zmq_context == NULL) {
+        if (ngx_zeromq_context == NULL) {
             ngx_zeromq_log_error(cycle->log, "zmq_init()");
             return NGX_ERROR;
         }
@@ -870,7 +868,11 @@ ngx_zeromq_process_init(ngx_cycle_t *cycle)
 static void
 ngx_zeromq_process_exit(ngx_cycle_t *cycle)
 {
-    if (zmq_context != NULL && zmq_term(zmq_context) == -1) {
-        ngx_zeromq_log_error(cycle->log, "zmq_term()");
+    if (ngx_zeromq_context) {
+        if (zmq_term(ngx_zeromq_context) == -1) {
+            ngx_zeromq_log_error(cycle->log, "zmq_term()");
+        }
+
+        ngx_zeromq_context = NULL;
     }
 }

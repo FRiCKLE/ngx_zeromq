@@ -76,7 +76,7 @@ void ngx_zeromq_close(ngx_zeromq_connection_t *zc);
 
 
 extern ngx_zeromq_socket_t  ngx_zeromq_socket_types[];
-extern int                  zmq_used;
+extern ngx_int_t            ngx_zeromq_used;
 
 
 #endif /* _NGX_EVENT_ZEROMQ_H_INCLUDED_ */

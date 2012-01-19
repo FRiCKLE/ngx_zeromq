@@ -380,7 +380,7 @@ ngx_http_upstream_zeromq_endpoint(ngx_conf_t *cf, ngx_command_t *cmd,
     uscf->servers = (ngx_array_t *) -1;
     uscf->peer.init_upstream = ngx_http_upstream_init_zeromq;
 
-    zmq_used = 1;
+    ngx_zeromq_used = 1;
 
     return NGX_CONF_OK;
 }
