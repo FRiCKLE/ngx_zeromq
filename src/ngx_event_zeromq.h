@@ -34,6 +34,10 @@
 #include <ngx_event_connect.h>
 
 
+#define NGX_ZEROMQ_REQ   0
+#define NGX_ZEROMQ_PUSH  1
+
+
 typedef struct ngx_zeromq_connection_s  ngx_zeromq_connection_t;
 
 typedef struct {
