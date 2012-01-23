@@ -36,6 +36,7 @@
 
 #define NGX_ZEROMQ_REQ   0
 #define NGX_ZEROMQ_PUSH  1
+#define NGX_ZEROMQ_PULL  2
 
 
 typedef struct ngx_zeromq_connection_s  ngx_zeromq_connection_t;

@@ -77,6 +77,7 @@ static void ngx_zeromq_process_exit(ngx_cycle_t *cycle);
 ngx_zeromq_socket_t  ngx_zeromq_socket_types[] = {
     { ngx_string("REQ"),  ZMQ_REQ,  1, 1 },
     { ngx_string("PUSH"), ZMQ_PUSH, 1, 0 },
+    { ngx_string("PULL"), ZMQ_PULL, 0, 1 },
     { ngx_null_string, 0, 0, 0 }
 };
 
