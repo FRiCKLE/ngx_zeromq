@@ -172,6 +172,55 @@ ngx_zeromq_randomized_endpoint_regen(ngx_str_t *addr)
 }
 
 
+ngx_chain_t *
+ngx_zeromq_headers_add_http(ngx_chain_t *in, ngx_zeromq_endpoint_t *zep,
+    ngx_pool_t *pool)
+{
+    ngx_chain_t  *cl;
+    ngx_buf_t    *b;
+    size_t        len;
+
+    len = sizeof("X-ZeroMQ-RespondTo:  ") - 1 + 2 * (sizeof(CRLF) - 1)
+          + zep->type->name.len + zep->addr.len;
+
+    if (zep->rand) {
+        len += sizeof("65535") - 1;
+    }
+
+    b = ngx_create_temp_buf(pool, len);
+    if (b == NULL) {
+        return NGX_CHAIN_ERROR;
+    }
+
+    cl = ngx_alloc_chain_link(pool);
+    if (cl == NULL) {
+        return NGX_CHAIN_ERROR;
+    }
+
+    cl->buf = b;
+    cl->next = in->next;
+    in->next = cl;
+
+    if (!zep->rand) {
+        ngx_zeromq_headers_set_http(b, zep);
+    }
+
+    in->buf->last -= sizeof(CRLF) - 1;
+
+    return cl;
+}
+
+
+void
+ngx_zeromq_headers_set_http(ngx_buf_t *b, ngx_zeromq_endpoint_t *zep)
+{
+    b->pos = b->start;
+    b->last = ngx_snprintf(b->start, b->end - b->start,
+                           "X-ZeroMQ-RespondTo: %V %V" CRLF CRLF,
+                           &zep->type->name, &zep->addr);
+}
+
+
 ngx_int_t
 ngx_zeromq_connect(ngx_peer_connection_t *pc)
 {

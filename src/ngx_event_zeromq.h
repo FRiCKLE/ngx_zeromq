@@ -75,6 +75,10 @@ struct ngx_zeromq_connection_s {
 ngx_zeromq_endpoint_t *ngx_zeromq_randomized_endpoint(
     ngx_zeromq_endpoint_t *zep, ngx_pool_t *pool);
 
+ngx_chain_t *ngx_zeromq_headers_add_http(ngx_chain_t *in,
+    ngx_zeromq_endpoint_t *zep, ngx_pool_t *pool);
+void ngx_zeromq_headers_set_http(ngx_buf_t *b, ngx_zeromq_endpoint_t *zep);
+
 ngx_int_t ngx_zeromq_connect(ngx_peer_connection_t *pc);
 void ngx_zeromq_close(ngx_zeromq_connection_t *zc);
 

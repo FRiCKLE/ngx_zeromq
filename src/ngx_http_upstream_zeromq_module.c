@@ -44,6 +44,7 @@ typedef struct {
     ngx_zeromq_connection_t   recv;
 
     ngx_http_request_t       *request;
+    ngx_chain_t              *headers;
 } ngx_http_upstream_zeromq_peer_data_t;
 
 
@@ -164,6 +165,7 @@ ngx_http_upstream_init_zeromq_peer(ngx_http_request_t *r,
 {
     ngx_http_upstream_zeromq_peer_data_t  *zp;
     ngx_http_upstream_zeromq_srv_conf_t   *zcf;
+    ngx_http_upstream_t                   *u;
 
     zp = ngx_pcalloc(r->pool, sizeof(ngx_http_upstream_zeromq_peer_data_t));
     if (zp == NULL) {
@@ -200,11 +202,27 @@ ngx_http_upstream_init_zeromq_peer(ngx_http_request_t *r,
 
     zp->request = r;
 
-    r->upstream->peer.data = zp;
-    r->upstream->peer.name = &zp->send.endpoint->addr;
+    u = r->upstream;
 
-    r->upstream->peer.get = ngx_http_upstream_get_zeromq_peer;
-    r->upstream->peer.free = ngx_http_upstream_free_zeromq_peer;
+    u->peer.data = zp;
+    u->peer.name = &zp->send.endpoint->addr;
+
+    u->peer.get = ngx_http_upstream_get_zeromq_peer;
+    u->peer.free = ngx_http_upstream_free_zeromq_peer;
+
+    if (zp->recv.endpoint->type != &ngx_zeromq_socket_types[NGX_ZEROMQ_REQ]) {
+        if (u->conf->module.len == sizeof("proxy") - 1
+            && ngx_strncmp(u->conf->module.data, "proxy",
+                           sizeof("proxy") - 1) == 0)
+        {
+            zp->headers = ngx_zeromq_headers_add_http(u->request_bufs,
+                                                      zp->recv.endpoint,
+                                                      r->pool);
+            if (zp->headers == NGX_CHAIN_ERROR) {
+                return NGX_ERROR;
+            }
+        }
+    }
 
     return NGX_OK;
 }
@@ -241,6 +259,10 @@ ngx_http_upstream_get_zeromq_peer(ngx_peer_connection_t *pc, void *data)
     if (zp->recv.endpoint != zp->send.endpoint) {
         zp->send.recv = zp->recv.recv;
         zp->recv.send = zp->send.send;
+    }
+
+    if (zp->recv.endpoint->rand && zp->headers) {
+        ngx_zeromq_headers_set_http(zp->headers->buf, zp->recv.endpoint);
     }
 
     return NGX_DONE;
