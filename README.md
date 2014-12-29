@@ -9,10 +9,7 @@ well-behaving upstream modules (`proxy`, `fastcgi`, `uwsgi`, `scgi`, etc.).
 
 Status
 ======
-This is experimental module and it's compatible with following nginx releases:
-
-- 1.0.x (tested with 1.0.0 to 1.0.11),
-- 1.1.x (tested with 1.1.0 to 1.1.12).
+This is experimental module.
 
 
 Caveats
