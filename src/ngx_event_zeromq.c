@@ -129,7 +129,7 @@ ngx_module_t  ngx_zeromq_module = {
 };
 
 
-static void  *ngx_zeromq_context;
+static void  *ngx_zeromq_ctx;
 ngx_int_t     ngx_zeromq_used;
 
 
@@ -247,7 +247,7 @@ ngx_zeromq_connect(ngx_peer_connection_t *pc)
 
     zep = zc->endpoint;
 
-    zmq = zmq_socket(ngx_zeromq_context, zep->type->value);
+    zmq = zmq_socket(ngx_zeromq_ctx, zep->type->value);
     if (zmq == NULL) {
         ngx_log_error(NGX_LOG_ALERT, pc->log, 0,
                       "zmq_socket(%V) failed (%d: %s)",
@@ -926,9 +926,9 @@ ngx_zeromq_process_init(ngx_cycle_t *cycle)
                                              ngx_zeromq_module);
 
     if (ngx_zeromq_used) {
-        ngx_zeromq_context = zmq_init(zcf->threads);
+        ngx_zeromq_ctx = zmq_init(zcf->threads);
 
-        if (ngx_zeromq_context == NULL) {
+        if (ngx_zeromq_ctx == NULL) {
             ngx_zeromq_log_error(cycle->log, "zmq_init()");
             return NGX_ERROR;
         }
@@ -941,11 +941,11 @@ ngx_zeromq_process_init(ngx_cycle_t *cycle)
 static void
 ngx_zeromq_process_exit(ngx_cycle_t *cycle)
 {
-    if (ngx_zeromq_context) {
-        if (zmq_term(ngx_zeromq_context) == -1) {
+    if (ngx_zeromq_ctx) {
+        if (zmq_term(ngx_zeromq_ctx) == -1) {
             ngx_zeromq_log_error(cycle->log, "zmq_term()");
         }
 
-        ngx_zeromq_context = NULL;
+        ngx_zeromq_ctx = NULL;
     }
 }
