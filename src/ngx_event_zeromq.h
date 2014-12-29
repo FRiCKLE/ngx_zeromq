@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2012, FRiCKLE <info@frickle.com>
- * Copyright (c) 2012, Piotr Sikora <piotr.sikora@frickle.com>
+ * Copyright (c) 2012-2014, FRiCKLE <info@frickle.com>
+ * Copyright (c) 2012-2014, Piotr Sikora <piotr.sikora@frickle.com>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
