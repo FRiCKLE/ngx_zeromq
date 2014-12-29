@@ -40,13 +40,6 @@
 #endif
 
 
-#if ZMQ_VERSION_MAJOR < 3
-#define ZMQ_DONTWAIT  ZMQ_NOBLOCK
-#define zmq_sendmsg   zmq_send
-#define zmq_recvmsg   zmq_recv
-#endif
-
-
 typedef struct {
     ngx_int_t  threads;
 } ngx_zeromq_conf_t;
@@ -484,7 +477,7 @@ ngx_zeromq_event_handler(ngx_event_t *ev)
     ngx_zeromq_connection_t  *zc;
     ngx_connection_t         *c;
     void                     *zmq;
-    uint32_t                  events;
+    int                       events;
     size_t                    esize;
 
     /*
@@ -501,7 +494,7 @@ ngx_zeromq_event_handler(ngx_event_t *ev)
     zc = ev->data;
     zc = zc->send;
 
-    esize = sizeof(uint32_t);
+    esize = sizeof(int);
 
 #if (NGX_DEBUG)
     if (zc->recv != zc->send) {
@@ -558,7 +551,7 @@ ngx_zeromq_sendmsg(void *zmq, ngx_event_t *ev, zmq_msg_t *msg, int flags)
     size = zmq_msg_size(msg);
 
     for (;;) {
-        if (zmq_sendmsg(zmq, msg, ZMQ_DONTWAIT|flags) == -1) {
+        if (zmq_msg_send(msg, zmq, ZMQ_DONTWAIT|flags) == -1) {
 
             if (ngx_errno == NGX_EAGAIN) {
                 ngx_log_debug0(NGX_LOG_DEBUG_EVENT, ev->log, 0,
@@ -574,7 +567,7 @@ ngx_zeromq_sendmsg(void *zmq, ngx_event_t *ev, zmq_msg_t *msg, int flags)
                 continue;
             }
 
-            ngx_zeromq_log_error(ev->log, "zmq_sendmsg()");
+            ngx_zeromq_log_error(ev->log, "zmq_msg_send()");
 
             ev->error = 1;
             return NGX_ERROR;
@@ -593,11 +586,10 @@ ngx_zeromq_sendmsg(void *zmq, ngx_event_t *ev, zmq_msg_t *msg, int flags)
 static ssize_t
 ngx_zeromq_recvmsg(void *zmq, ngx_event_t *ev, zmq_msg_t *msg)
 {
-    int64_t  more;
-    size_t   msize;
+    int  more;
 
     for (;;) {
-        if (zmq_recvmsg(zmq, msg, ZMQ_DONTWAIT) == -1) {
+        if (zmq_msg_recv(msg, zmq, ZMQ_DONTWAIT) == -1) {
 
             if (ngx_errno == NGX_EAGAIN) {
                 ngx_log_debug0(NGX_LOG_DEBUG_EVENT, ev->log, 0,
@@ -613,7 +605,7 @@ ngx_zeromq_recvmsg(void *zmq, ngx_event_t *ev, zmq_msg_t *msg)
                 continue;
             }
 
-            ngx_zeromq_log_error(ev->log, "zmq_recvmsg()");
+            ngx_zeromq_log_error(ev->log, "zmq_msg_recv()");
 
             ev->error = 1;
             return NGX_ERROR;
@@ -622,10 +614,10 @@ ngx_zeromq_recvmsg(void *zmq, ngx_event_t *ev, zmq_msg_t *msg)
         break;
     }
 
-    msize = sizeof(int64_t);
+    more = zmq_msg_get(msg, ZMQ_MORE);
 
-    if (zmq_getsockopt(zmq, ZMQ_RCVMORE, &more, &msize) == -1) {
-        ngx_zeromq_log_error(ev->log, "zmq_getsockopt(ZMQ_RCVMORE)");
+    if (more == -1) {
+        ngx_zeromq_log_error(ev->log, "zmq_msg_more()");
 
         ev->error = 1;
         return NGX_ERROR;
@@ -926,11 +918,15 @@ ngx_zeromq_process_init(ngx_cycle_t *cycle)
                                              ngx_zeromq_module);
 
     if (ngx_zeromq_used) {
-        ngx_zeromq_ctx = zmq_init(zcf->threads);
+        ngx_zeromq_ctx = zmq_ctx_new();
 
         if (ngx_zeromq_ctx == NULL) {
-            ngx_zeromq_log_error(cycle->log, "zmq_init()");
+            ngx_zeromq_log_error(cycle->log, "zmq_ctx_new()");
             return NGX_ERROR;
+        }
+
+        if (zmq_ctx_set(ngx_zeromq_ctx, ZMQ_IO_THREADS, zcf->threads) == -1) {
+            ngx_zeromq_log_error(cycle->log, "zmq_ctx_set(ZMQ_IO_THREADS)");
         }
     }
 
@@ -942,8 +938,8 @@ static void
 ngx_zeromq_process_exit(ngx_cycle_t *cycle)
 {
     if (ngx_zeromq_ctx) {
-        if (zmq_term(ngx_zeromq_ctx) == -1) {
-            ngx_zeromq_log_error(cycle->log, "zmq_term()");
+        if (zmq_ctx_destroy(ngx_zeromq_ctx) == -1) {
+            ngx_zeromq_log_error(cycle->log, "zmq_ctx_destroy()");
         }
 
         ngx_zeromq_ctx = NULL;

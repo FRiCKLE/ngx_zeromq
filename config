@@ -32,7 +32,7 @@ fi
 ngx_feature_name=
 ngx_feature_run=yes
 ngx_feature_incs="#include <zmq.h>"
-ngx_feature_test="if (ZMQ_VERSION < 20100) { return 1; }"
+ngx_feature_test="if (ZMQ_VERSION < 30200) { return 1; }"
 
 if [ -n "$LIBZMQ_INC" -o -n "$LIBZMQ_LIB" ]; then
     # specified by LIBZMQ_INC and/or LIBZMQ_LIB
@@ -89,7 +89,7 @@ else
 fi
 
 if [ $ngx_found = no ]; then
-   echo "$0: error: ngx_zeromq module requires libzmq-2.1.0+."
+   echo "$0: error: ngx_zeromq module requires libzmq-3.2.0+."
    exit 1
 fi
 
