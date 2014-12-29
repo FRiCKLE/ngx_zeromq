@@ -31,7 +31,13 @@
 #include <ngx_event_connect.h>
 #include <ngx_event_zeromq.h>
 #include <ngx_http.h>
+#include <nginx.h>
 #include <zmq.h>
+
+
+#ifndef nginx_version
+#error This module cannot be build against an unknown nginx version.
+#endif
 
 
 #if ZMQ_VERSION_MAJOR < 3
@@ -63,7 +69,12 @@ static ngx_chain_t *ngx_zeromq_send_chain(ngx_connection_t *c, ngx_chain_t *in,
 static ssize_t ngx_zeromq_recv_part(void *zmq, ngx_event_t *rev, u_char *buf,
     size_t size);
 static ssize_t ngx_zeromq_recv(ngx_connection_t *c, u_char *buf, size_t size);
+#if (nginx_version >= 1007007)
+static ssize_t ngx_zeromq_recv_chain(ngx_connection_t *c, ngx_chain_t *cl,
+    off_t limit);
+#else
 static ssize_t ngx_zeromq_recv_chain(ngx_connection_t *c, ngx_chain_t *cl);
+#endif
 
 static void *ngx_zeromq_create_conf(ngx_cycle_t *cycle);
 static char *ngx_zeromq_init_conf(ngx_cycle_t *cycle, void *conf);
@@ -433,11 +444,19 @@ ngx_zeromq_close(ngx_zeromq_connection_t *zc)
         }
     }
 
+#if (nginx_version >= 1007005)
+    if (c->read->posted) {
+#else
     if (c->read->prev) {
+#endif
         ngx_delete_posted_event(c->read);
     }
 
+#if (nginx_version >= 1007005)
+    if (c->write->posted) {
+#else
     if (c->write->prev) {
+#endif
         ngx_delete_posted_event(c->write);
     }
 
@@ -778,7 +797,11 @@ ngx_zeromq_recv(ngx_connection_t *c, u_char *buf, size_t size)
 
 
 static ssize_t
+#if (nginx_version >= 1007007)
+ngx_zeromq_recv_chain(ngx_connection_t *c, ngx_chain_t *cl, off_t limit)
+#else
 ngx_zeromq_recv_chain(ngx_connection_t *c, ngx_chain_t *cl)
+#endif
 {
     ngx_zeromq_connection_t  *zc;
     ngx_event_t              *rev;

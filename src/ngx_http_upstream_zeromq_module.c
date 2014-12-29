@@ -32,6 +32,11 @@
 #include <nginx.h>
 
 
+#ifndef nginx_version
+#error This module cannot be build against an unknown nginx version.
+#endif
+
+
 typedef struct {
     ngx_zeromq_endpoint_t    *send;
     ngx_zeromq_endpoint_t    *recv;
@@ -265,6 +270,21 @@ ngx_http_upstream_get_zeromq_peer(ngx_peer_connection_t *pc, void *data)
         ngx_zeromq_headers_set_http(zp->headers->buf, zp->recv.endpoint);
     }
 
+    if (pc->connection->pool == NULL) {
+        pc->connection->pool = ngx_create_pool(128, pc->log);
+        if (pc->connection->pool == NULL) {
+            return NGX_ERROR;
+        }
+    }
+
+    pc->sockaddr = ngx_pcalloc(pc->connection->pool, sizeof(struct sockaddr));
+    if (pc->sockaddr == NULL) {
+        return NGX_ERROR;
+    }
+
+    pc->sockaddr->sa_family = AF_UNSPEC;
+    pc->socklen = sizeof(struct sockaddr);
+
     return NGX_DONE;
 }
 
@@ -276,7 +296,7 @@ ngx_http_upstream_free_zeromq_peer(ngx_peer_connection_t *pc, void *data,
     ngx_http_upstream_zeromq_peer_data_t  *zp = data;
 
     if (pc->connection) {
-#if defined(nginx_version) && (nginx_version >= 1001004)
+#if (nginx_version >= 1001004)
         if (pc->connection->pool) {
             ngx_destroy_pool(pc->connection->pool);
         }
@@ -401,7 +421,17 @@ ngx_http_upstream_zeromq_endpoint(ngx_conf_t *cf, ngx_command_t *cmd,
         zcf->recv = zep;
     }
 
-    uscf->servers = (ngx_array_t *) -1;
+    if (uscf->servers == NULL) {
+        uscf->servers = ngx_pcalloc(cf->pool, sizeof(ngx_array_t));
+        if (uscf->servers == NULL) {
+            return NGX_CONF_ERROR;
+        }
+    }
+
+    if (uscf->servers->nelts == 0) {
+        uscf->servers->nelts = 1;
+    }
+
     uscf->peer.init_upstream = ngx_http_upstream_init_zeromq;
 
     ngx_zeromq_used = 1;
